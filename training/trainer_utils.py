@@ -1,4 +1,4 @@
-"""Utilities: model loading, dataset prep, W&B setup, trainer construction."""
+"""Utilities: model loading, dataset tokenization, W&B setup, adapter saving."""
 
 import json
 import os
@@ -6,17 +6,9 @@ from pathlib import Path
 
 import torch
 import wandb
-from accelerate import Accelerator
 from datasets import Dataset
 from peft import LoraConfig, get_peft_model
-from transformers import (
-    AutoTokenizer,
-    DataCollatorForSeq2Seq,
-    TrainingArguments,
-)
-from trl import SFTTrainer
-
-accelerator = Accelerator()
+from transformers import AutoTokenizer
 
 try:
     from unsloth import FastLanguageModel
@@ -102,58 +94,29 @@ def load_train_val_datasets(cfg: dict, tokenizer):
     data_cfg = cfg["data"]
     train_records = _load_jsonl(data_cfg["train_file"])
     val_records = _load_jsonl(data_cfg["val_file"])
-
-    col = data_cfg.get("text_column", "text")
     train_ds = Dataset.from_list(train_records)
     val_ds = Dataset.from_list(val_records)
     return train_ds, val_ds
 
 
-def build_trainer(model, tokenizer, train_ds, val_ds, cfg: dict) -> SFTTrainer:
-    t = cfg["training"]
+def tokenize_dataset(dataset: Dataset, tokenizer, cfg: dict) -> Dataset:
+    """Tokenize text column into input_ids / labels for the training loop."""
+    max_len = cfg["model"]["max_seq_length"]
+    text_col = cfg["data"].get("text_column", "text")
 
-    # On multi-GPU (e.g. Kaggle 2x T4), Accelerate handles device placement and
-    # gradient sync automatically via accelerator.prepare() inside SFTTrainer.
-    # No manual .to(device) calls needed — TrainingArguments picks up the
-    # process_index and local_rank from the Accelerator state.
-    ddp_find_unused = accelerator.num_processes > 1
+    def _tokenize(batch):
+        enc = tokenizer(
+            batch[text_col],
+            truncation=True,
+            max_length=max_len,
+            padding=False,
+        )
+        enc["labels"] = enc["input_ids"].copy()
+        return enc
 
-    training_args = TrainingArguments(
-        output_dir=t["output_dir"],
-        num_train_epochs=t["num_train_epochs"],
-        per_device_train_batch_size=t["per_device_train_batch_size"],
-        per_device_eval_batch_size=t["per_device_eval_batch_size"],
-        gradient_accumulation_steps=t["gradient_accumulation_steps"],
-        learning_rate=t["learning_rate"],
-        weight_decay=t["weight_decay"],
-        warmup_ratio=t["warmup_ratio"],
-        lr_scheduler_type=t["lr_scheduler_type"],
-        optim=t["optim"],
-        fp16=t["fp16"],
-        bf16=t["bf16"],
-        logging_steps=t["logging_steps"],
-        evaluation_strategy="steps",
-        eval_steps=t["eval_steps"],
-        save_strategy="steps",
-        save_steps=t["save_steps"],
-        save_total_limit=t["save_total_limit"],
-        load_best_model_at_end=t["load_best_model_at_end"],
-        metric_for_best_model=t["metric_for_best_model"],
-        report_to=t["report_to"],
-        seed=t["seed"],
-        ddp_find_unused_parameters=ddp_find_unused,
-    )
-
-    trainer = SFTTrainer(
-        model=model,
-        tokenizer=tokenizer,
-        train_dataset=train_ds,
-        eval_dataset=val_ds,
-        dataset_text_field=cfg["data"].get("text_column", "text"),
-        max_seq_length=cfg["model"]["max_seq_length"],
-        args=training_args,
-    )
-    return trainer
+    tokenized = dataset.map(_tokenize, batched=True, remove_columns=dataset.column_names)
+    tokenized.set_format("torch")
+    return tokenized
 
 
 def save_adapter(model, tokenizer, output_dir: Path):
