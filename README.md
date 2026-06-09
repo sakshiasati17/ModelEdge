@@ -111,3 +111,31 @@ ModelEdge/
 | 2 | Evaluation + quantization | INT8 / INT4 models, benchmark numbers |
 | 3 | Serving + dashboard | vLLM live, Streamlit tradeoff chart |
 | 4 | Depth + polish | Failure analysis, clean GitHub, README |
+
+## What's Left ❌ (needs GPU — use Kaggle 2x T4, free)
+
+### New additions since scaffold ➕
+- [ ] **Add HuggingFace Accelerate to `training/finetune.py`** — wrap model, optimizer,
+      dataloader with `accelerator.prepare()`. Makes training multi-GPU ready.
+      Use `tensor_parallel_size=2` in vLLM for both T4s.
+- [ ] **Migrate from Colab notebook to Kaggle** — upload `notebooks/kaggle_training.ipynb`
+      to Kaggle, set GPU T4 x2, add WANDB_API_KEY to Kaggle secrets
+
+### Execution steps
+1. [ ] **Run training on Kaggle 2x T4** — connect W&B, run finetune.py,
+       save adapter weights to `/kaggle/working/outputs/finetuned`
+2. [ ] **Run quantization** — once finetuned weights exist:
+       ```bash
+       python quantization/quantize.py --model outputs/finetuned --bits 8
+       python quantization/quantize.py --model outputs/finetuned --bits 4
+       ```
+3. [ ] **Run benchmarks** — fill `results/summary.json` with real numbers:
+       ```bash
+       python benchmarking/run_benchmark.py --models base fp16 int8 int4
+       ```
+4. [ ] **Stand up vLLM with both T4s** — use `tensor_parallel_size=2`,
+       run `load_test.py` at 1/10/50 concurrent requests
+5. [ ] **Failure analysis** — review 30 wrong answers, categorize into failure
+       types, add taxonomy to README + Streamlit dashboard
+6. [ ] **Update README** — replace placeholder benchmark table with real
+       p50/p95 latency, VRAM, accuracy, hallucination rate numbers + W&B run link

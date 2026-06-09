@@ -6,6 +6,7 @@ from pathlib import Path
 
 import torch
 import wandb
+from accelerate import Accelerator
 from datasets import Dataset
 from peft import LoraConfig, get_peft_model
 from transformers import (
@@ -14,6 +15,8 @@ from transformers import (
     TrainingArguments,
 )
 from trl import SFTTrainer
+
+accelerator = Accelerator()
 
 try:
     from unsloth import FastLanguageModel
@@ -109,6 +112,12 @@ def load_train_val_datasets(cfg: dict, tokenizer):
 def build_trainer(model, tokenizer, train_ds, val_ds, cfg: dict) -> SFTTrainer:
     t = cfg["training"]
 
+    # On multi-GPU (e.g. Kaggle 2x T4), Accelerate handles device placement and
+    # gradient sync automatically via accelerator.prepare() inside SFTTrainer.
+    # No manual .to(device) calls needed — TrainingArguments picks up the
+    # process_index and local_rank from the Accelerator state.
+    ddp_find_unused = accelerator.num_processes > 1
+
     training_args = TrainingArguments(
         output_dir=t["output_dir"],
         num_train_epochs=t["num_train_epochs"],
@@ -132,6 +141,7 @@ def build_trainer(model, tokenizer, train_ds, val_ds, cfg: dict) -> SFTTrainer:
         metric_for_best_model=t["metric_for_best_model"],
         report_to=t["report_to"],
         seed=t["seed"],
+        ddp_find_unused_parameters=ddp_find_unused,
     )
 
     trainer = SFTTrainer(
