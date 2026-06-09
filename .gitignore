@@ -1,0 +1,29 @@
+__pycache__/
+*.py[cod]
+*.so
+.env
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Model weights and checkpoints (large files)
+outputs/
+*.bin
+*.safetensors
+*.pt
+*.pth
+
+# Processed data
+data/processed/
+
+# W&B
+wandb/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
