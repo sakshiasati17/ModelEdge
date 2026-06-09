@@ -5,13 +5,12 @@ Downloads MedQA or PubMedQA, cleans the records, and converts them to
 Alpaca-style instruction format ready for fine-tuning.
 
 Usage:
-    python data/prepare_dataset.py --dataset medqa --output data/processed/
-    python data/prepare_dataset.py --dataset pubmedqa --output data/processed/
+    python -m data.prepare_dataset --dataset medqa --output data/processed/
+    python -m data.prepare_dataset --dataset pubmedqa --output data/processed/
 """
 
 import argparse
 import json
-import os
 from pathlib import Path
 
 from datasets import load_dataset
@@ -24,22 +23,48 @@ from data.dataset_utils import (
 )
 
 
+def _normalize_medqa(row: dict) -> dict | None:
+    question = row.get("question", "").strip()
+    answer = row.get("answer", "")
+    options = row.get("options", {})
+
+    if not question or not answer:
+        return None
+
+    if isinstance(options, dict) and options:
+        choices = [options[k] for k in sorted(options.keys())]
+    elif isinstance(options, list):
+        choices = [str(o) for o in options]
+    else:
+        choices = []
+
+    return {"question": question, "choices": choices, "answer": str(answer).strip()}
+
+
+def _normalize_pubmedqa(row: dict) -> dict | None:
+    question = row.get("question", "").strip()
+    decision = row.get("final_decision", "").strip()
+    long_answer = row.get("long_answer", "").strip()
+
+    if not question or not decision:
+        return None
+
+    answer = long_answer if long_answer else decision
+    return {"question": question, "choices": ["yes", "no", "maybe"], "answer": answer}
+
+
+# Datasets are loaded directly from parquet/arrow files on the Hub
+# (no custom loading scripts — those are no longer supported by `datasets`).
 DATASET_CONFIGS = {
     "medqa": {
-        "hf_name": "bigbio/med_qa",
-        "hf_config": "med_qa_en_bigbio_qa",
-        "splits": ["train", "validation", "test"],
-        "question_field": "question",
-        "choices_field": "choices",
-        "answer_field": "answer",
+        "hf_name": "GBaker/MedQA-USMLE-4-options",
+        "hf_config": None,
+        "normalize": _normalize_medqa,
     },
     "pubmedqa": {
-        "hf_name": "bigbio/pubmed_qa",
-        "hf_config": "pubmed_qa_labeled_fold0_bigbio_qa",
-        "splits": ["train", "test"],
-        "question_field": "question",
-        "choices_field": "choices",
-        "answer_field": "answer",
+        "hf_name": "qiaojin/PubMedQA",
+        "hf_config": "pqa_labeled",
+        "normalize": _normalize_pubmedqa,
     },
 }
 
@@ -47,36 +72,20 @@ DATASET_CONFIGS = {
 def load_raw_dataset(dataset_name: str):
     cfg = DATASET_CONFIGS[dataset_name]
     print(f"[data] Loading {cfg['hf_name']} ({cfg['hf_config']}) ...")
-    raw = load_dataset(cfg["hf_name"], cfg["hf_config"])
-    return raw, cfg
-
-
-def clean_record(record: dict, cfg: dict) -> dict | None:
-    """Return a normalised record or None to drop it."""
-    question = record.get(cfg["question_field"], "").strip()
-    choices = record.get(cfg["choices_field"], [])
-    answer = record.get(cfg["answer_field"], "")
-
-    if not question or not answer:
-        return None
-
-    if isinstance(choices, list) and len(choices) > 0:
-        choice_texts = [
-            c["text"] if isinstance(c, dict) else str(c) for c in choices
-        ]
+    if cfg["hf_config"]:
+        raw = load_dataset(cfg["hf_name"], cfg["hf_config"])
     else:
-        choice_texts = []
-
-    return {"question": question, "choices": choice_texts, "answer": str(answer).strip()}
+        raw = load_dataset(cfg["hf_name"])
+    return raw, cfg
 
 
 def build_instruction_dataset(raw_dataset, cfg: dict, fmt: str = "alpaca") -> list[dict]:
     records = []
-    for split_name in cfg["splits"]:
-        if split_name not in raw_dataset:
-            continue
+    normalize = cfg["normalize"]
+
+    for split_name in raw_dataset.keys():
         for row in raw_dataset[split_name]:
-            cleaned = clean_record(row, cfg)
+            cleaned = normalize(row)
             if cleaned is None:
                 continue
             if not validate_record(cleaned):
@@ -86,6 +95,7 @@ def build_instruction_dataset(raw_dataset, cfg: dict, fmt: str = "alpaca") -> li
             else:
                 formatted = format_chat_template(cleaned)
             records.append(formatted)
+
     print(f"[data] {len(records)} valid records after cleaning.")
     return records
 
