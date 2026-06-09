@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: modeledge-config
+data:
+  # Path inside the pod where model weights are mounted
+  model_path: "/models/finetuned"
+
+  # FastAPI uses this to reach the vLLM service (ClusterIP DNS name)
+  vllm_base_url: "http://modeledge-vllm:8001/v1"
+
+  # vLLM generation defaults
+  max_new_tokens: "256"
+  temperature: "0.1"
+
+  # Serving metadata
+  model_name: "modeledge-medqa"
+  max_seq_length: "2048"

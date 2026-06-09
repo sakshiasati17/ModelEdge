@@ -1,0 +1,132 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: modeledge-vllm
+  labels:
+    app: modeledge
+    component: vllm
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: modeledge
+      component: vllm
+  template:
+    metadata:
+      labels:
+        app: modeledge
+        component: vllm
+    spec:
+      containers:
+        - name: vllm-server
+          image: vllm/vllm-openai:latest
+          args:
+            - "--model"
+            - "$(MODEL_PATH)"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8001"
+            - "--tensor-parallel-size"
+            - "1"
+            - "--max-model-len"
+            - "2048"
+          ports:
+            - containerPort: 8001
+          env:
+            - name: MODEL_PATH
+              valueFrom:
+                configMapKeyRef:
+                  name: modeledge-config
+                  key: model_path
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: modeledge-secrets
+                  key: hf_token
+                  optional: true
+          resources:
+            requests:
+              memory: "8Gi"
+              cpu: "2"
+              nvidia.com/gpu: "1"
+            limits:
+              memory: "16Gi"
+              cpu: "4"
+              nvidia.com/gpu: "1"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 60
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 120
+            periodSeconds: 30
+          volumeMounts:
+            - name: model-storage
+              mountPath: /models
+      volumes:
+        - name: model-storage
+          persistentVolumeClaim:
+            claimName: modeledge-model-pvc
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: modeledge-api
+  labels:
+    app: modeledge
+    component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: modeledge
+      component: api
+  template:
+    metadata:
+      labels:
+        app: modeledge
+        component: api
+    spec:
+      containers:
+        - name: fastapi
+          image: modeledge-api:latest
+          args:
+            - "uvicorn"
+            - "serving.api:app"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+            - "--workers"
+            - "2"
+          ports:
+            - containerPort: 8000
+          env:
+            - name: VLLM_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: modeledge-config
+                  key: vllm_base_url
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
