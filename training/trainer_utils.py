@@ -1,4 +1,4 @@
-"""Utilities: model loading, dataset tokenization, W&B setup, adapter saving."""
+"""Utilities: model loading, dataset prep, W&B setup, SFTTrainer construction."""
 
 import json
 import os
@@ -8,15 +8,14 @@ import torch
 import wandb
 from datasets import Dataset
 from peft import LoraConfig, get_peft_model
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, TrainingArguments
+from trl import SFTTrainer
 
 try:
     from unsloth import FastLanguageModel
-
     UNSLOTH_AVAILABLE = True
 except ImportError:
     from transformers import AutoModelForCausalLM
-
     UNSLOTH_AVAILABLE = False
     print("[train] Unsloth not found — falling back to standard HuggingFace loading.")
 
@@ -24,10 +23,9 @@ except ImportError:
 def setup_wandb(cfg: dict):
     wandb_cfg = cfg.get("wandb", {})
     os.environ.setdefault("WANDB_PROJECT", wandb_cfg.get("project", "modeledge"))
-    run_name = wandb_cfg.get("run_name", None)
     wandb.init(
         project=wandb_cfg.get("project", "modeledge"),
-        name=run_name,
+        name=wandb_cfg.get("run_name", None),
         config=cfg,
     )
 
@@ -44,7 +42,6 @@ def load_model_and_tokenizer(cfg: dict):
             dtype=None,
             load_in_4bit=model_cfg.get("load_in_4bit", True),
         )
-
         lora_cfg = cfg["lora"]
         model = FastLanguageModel.get_peft_model(
             model,
@@ -59,20 +56,20 @@ def load_model_and_tokenizer(cfg: dict):
     else:
         tokenizer = AutoTokenizer.from_pretrained(name)
         model = AutoModelForCausalLM.from_pretrained(
-            name,
-            torch_dtype=torch.float16,
-            device_map="auto",
+            name, torch_dtype=torch.float16, device_map="auto"
         )
         lora_cfg = cfg["lora"]
-        peft_config = LoraConfig(
-            r=lora_cfg["r"],
-            lora_alpha=lora_cfg["lora_alpha"],
-            lora_dropout=lora_cfg["lora_dropout"],
-            target_modules=lora_cfg["target_modules"],
-            bias=lora_cfg["bias"],
-            task_type=lora_cfg["task_type"],
+        model = get_peft_model(
+            model,
+            LoraConfig(
+                r=lora_cfg["r"],
+                lora_alpha=lora_cfg["lora_alpha"],
+                lora_dropout=lora_cfg["lora_dropout"],
+                target_modules=lora_cfg["target_modules"],
+                bias=lora_cfg["bias"],
+                task_type=lora_cfg["task_type"],
+            ),
         )
-        model = get_peft_model(model, peft_config)
 
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -92,31 +89,48 @@ def _load_jsonl(path: str) -> list[dict]:
 
 def load_train_val_datasets(cfg: dict, tokenizer):
     data_cfg = cfg["data"]
-    train_records = _load_jsonl(data_cfg["train_file"])
-    val_records = _load_jsonl(data_cfg["val_file"])
-    train_ds = Dataset.from_list(train_records)
-    val_ds = Dataset.from_list(val_records)
+    train_ds = Dataset.from_list(_load_jsonl(data_cfg["train_file"]))
+    val_ds = Dataset.from_list(_load_jsonl(data_cfg["val_file"]))
     return train_ds, val_ds
 
 
-def tokenize_dataset(dataset: Dataset, tokenizer, cfg: dict) -> Dataset:
-    """Tokenize text column into input_ids / labels for the training loop."""
-    max_len = cfg["model"]["max_seq_length"]
-    text_col = cfg["data"].get("text_column", "text")
+def build_sft_trainer(model, tokenizer, train_ds, val_ds, cfg: dict) -> SFTTrainer:
+    t = cfg["training"]
 
-    def _tokenize(batch):
-        enc = tokenizer(
-            batch[text_col],
-            truncation=True,
-            max_length=max_len,
-            padding=False,
-        )
-        enc["labels"] = enc["input_ids"].copy()
-        return enc
+    training_args = TrainingArguments(
+        output_dir=t["output_dir"],
+        num_train_epochs=t["num_train_epochs"],
+        per_device_train_batch_size=t["per_device_train_batch_size"],
+        per_device_eval_batch_size=t["per_device_eval_batch_size"],
+        gradient_accumulation_steps=t["gradient_accumulation_steps"],
+        learning_rate=t["learning_rate"],
+        weight_decay=t["weight_decay"],
+        warmup_ratio=t["warmup_ratio"],
+        lr_scheduler_type=t["lr_scheduler_type"],
+        optim=t["optim"],
+        fp16=t["fp16"],
+        bf16=t["bf16"],
+        logging_steps=t["logging_steps"],
+        eval_strategy="steps",
+        eval_steps=t["eval_steps"],
+        save_strategy="steps",
+        save_steps=t["save_steps"],
+        save_total_limit=t["save_total_limit"],
+        load_best_model_at_end=t["load_best_model_at_end"],
+        metric_for_best_model=t["metric_for_best_model"],
+        report_to=t["report_to"],
+        seed=t["seed"],
+    )
 
-    tokenized = dataset.map(_tokenize, batched=True, remove_columns=dataset.column_names)
-    tokenized.set_format("torch")
-    return tokenized
+    return SFTTrainer(
+        model=model,
+        tokenizer=tokenizer,
+        train_dataset=train_ds,
+        eval_dataset=val_ds,
+        dataset_text_field=cfg["data"].get("text_column", "text"),
+        max_seq_length=cfg["model"]["max_seq_length"],
+        args=training_args,
+    )
 
 
 def save_adapter(model, tokenizer, output_dir: Path):
