@@ -96,7 +96,8 @@ async def main_async(base_url: str, concurrency_levels: list[int], n_requests: i
         all_results[f"concurrency_{c}"] = r
 
     out_path = "results/load_test.json"
-    import os; os.makedirs("results", exist_ok=True)
+    import os
+    os.makedirs("results", exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(all_results, f, indent=2)
     print(f"\n[load] Results saved → {out_path}")

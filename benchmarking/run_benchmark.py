@@ -14,10 +14,14 @@ from benchmarking.accuracy import run_accuracy_benchmark
 from benchmarking.latency import run_latency_benchmark
 from benchmarking.memory import run_memory_benchmark
 
+import os as _os
+
+_BASE = _os.environ.get("MODELEDGE_OUTPUT_DIR", "outputs")
+
 MODEL_PATHS = {
-    "fp16": "outputs/finetuned",
-    "int8": "outputs/finetuned_int8",
-    "int4": "outputs/finetuned_int4_awq",
+    "fp16": f"{_BASE}/finetuned",
+    "int8": f"{_BASE}/finetuned_int8",
+    "int4": f"{_BASE}/finetuned_int4_awq",
     "base": "unsloth/Llama-3.2-3B-Instruct",
 }
 
