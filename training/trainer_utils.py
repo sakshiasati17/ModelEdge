@@ -134,7 +134,8 @@ def build_sft_trainer(model, tokenizer, train_ds, val_ds, cfg: dict) -> SFTTrain
             seed=t["seed"],
             dataset_text_field=cfg["data"].get("text_column", "text"),
             max_seq_length=None,
-            packing=False,
+            packing=True,
+            packing_strategy="bfd",
             remove_unused_columns=False,
         ),
     )
