@@ -8,8 +8,8 @@ import torch
 import wandb
 from datasets import Dataset
 from peft import LoraConfig, get_peft_model
-from transformers import AutoTokenizer, TrainingArguments
-from trl import SFTTrainer
+from transformers import AutoTokenizer
+from trl import SFTTrainer, SFTConfig
 
 try:
     from unsloth import FastLanguageModel
@@ -97,7 +97,13 @@ def load_train_val_datasets(cfg: dict, tokenizer):
 def build_sft_trainer(model, tokenizer, train_ds, val_ds, cfg: dict) -> SFTTrainer:
     t = cfg["training"]
 
-    training_args = TrainingArguments(
+    # SFTConfig extends TrainingArguments and owns SFT-specific params
+    # (dataset_text_field, max_seq_length) — trl v0.9+ removed them from SFTTrainer directly
+    sft_cfg = SFTConfig(
+        # SFT-specific
+        dataset_text_field=cfg["data"].get("text_column", "text"),
+        max_seq_length=cfg["model"]["max_seq_length"],
+        # Training
         output_dir=t["output_dir"],
         num_train_epochs=t["num_train_epochs"],
         per_device_train_batch_size=t["per_device_train_batch_size"],
@@ -105,7 +111,7 @@ def build_sft_trainer(model, tokenizer, train_ds, val_ds, cfg: dict) -> SFTTrain
         gradient_accumulation_steps=t["gradient_accumulation_steps"],
         learning_rate=t["learning_rate"],
         weight_decay=t["weight_decay"],
-        warmup_ratio=t["warmup_ratio"],
+        warmup_steps=int(t["warmup_ratio"] * t["num_train_epochs"] * 2434),
         lr_scheduler_type=t["lr_scheduler_type"],
         optim=t["optim"],
         fp16=t["fp16"],
@@ -127,9 +133,7 @@ def build_sft_trainer(model, tokenizer, train_ds, val_ds, cfg: dict) -> SFTTrain
         processing_class=tokenizer,
         train_dataset=train_ds,
         eval_dataset=val_ds,
-        dataset_text_field=cfg["data"].get("text_column", "text"),
-        max_seq_length=cfg["model"]["max_seq_length"],
-        args=training_args,
+        args=sft_cfg,
     )
 
 
