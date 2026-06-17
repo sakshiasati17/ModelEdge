@@ -21,6 +21,7 @@ try:
 except ImportError:
     pass
 
+import wandb
 import yaml
 
 from training.trainer_utils import (
@@ -63,7 +64,6 @@ def main():
     save_adapter(model, tokenizer, output_dir)
     print(f"[train] Adapter saved to {output_dir}")
 
-    import wandb
     wandb.finish()
 
 

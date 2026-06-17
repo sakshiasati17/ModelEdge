@@ -113,7 +113,6 @@ def build_sft_trainer(model, tokenizer, train_ds, val_ds, cfg: dict) -> SFTTrain
         eval_dataset=val_ds,
         dataset_text_field=cfg["data"].get("text_column", "text"),
         max_seq_length=cfg["model"]["max_seq_length"],
-        dataset_num_proc=2,
         packing=True,
         args=TrainingArguments(
             output_dir=t["output_dir"],
