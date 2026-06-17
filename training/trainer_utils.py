@@ -133,7 +133,7 @@ def build_sft_trainer(model, tokenizer, train_ds, val_ds, cfg: dict) -> SFTTrain
             report_to=t["report_to"],
             seed=t["seed"],
             dataset_text_field=cfg["data"].get("text_column", "text"),
-            max_seq_length=cfg["model"]["max_seq_length"],
+            max_seq_length=None,
             packing=False,
             remove_unused_columns=False,
         ),
