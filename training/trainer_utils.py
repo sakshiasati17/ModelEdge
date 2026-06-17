@@ -18,8 +18,8 @@ import torch
 import wandb
 from datasets import Dataset
 from peft import LoraConfig, get_peft_model
-from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
-from trl import SFTTrainer
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from trl import SFTConfig, SFTTrainer
 
 if not UNSLOTH_AVAILABLE:
     print("[train] Unsloth not found — falling back to standard HuggingFace loading.")
@@ -102,19 +102,14 @@ def load_train_val_datasets(cfg: dict, tokenizer):
 def build_sft_trainer(model, tokenizer, train_ds, val_ds, cfg: dict) -> SFTTrainer:
     t = cfg["training"]
 
-    # Use Unsloth's patched SFTTrainer API — Unsloth patches trl internally so
-    # tokenizer=, dataset_text_field=, and max_seq_length= work regardless of
-    # trl version, bypassing trl 5.x vocabulary validation that breaks on
-    # Unsloth's legacy tokenizer placeholder eos_token '<EOS_TOKEN>'.
+    # trl 1.6+ uses SFTConfig (not TrainingArguments) and processing_class (not tokenizer).
+    # remove_unused_columns=False prevents PEFT-wrapped models from having labels stripped.
     return SFTTrainer(
         model=model,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         train_dataset=train_ds,
         eval_dataset=val_ds,
-        dataset_text_field=cfg["data"].get("text_column", "text"),
-        max_seq_length=cfg["model"]["max_seq_length"],
-        packing=False,
-        args=TrainingArguments(
+        args=SFTConfig(
             output_dir=t["output_dir"],
             num_train_epochs=t["num_train_epochs"],
             per_device_train_batch_size=t["per_device_train_batch_size"],
@@ -137,6 +132,10 @@ def build_sft_trainer(model, tokenizer, train_ds, val_ds, cfg: dict) -> SFTTrain
             metric_for_best_model=t["metric_for_best_model"],
             report_to=t["report_to"],
             seed=t["seed"],
+            dataset_text_field=cfg["data"].get("text_column", "text"),
+            max_seq_length=cfg["model"]["max_seq_length"],
+            packing=False,
+            remove_unused_columns=False,
         ),
     )
 
