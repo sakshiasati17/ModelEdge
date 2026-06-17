@@ -8,8 +8,8 @@ import torch
 import wandb
 from datasets import Dataset
 from peft import LoraConfig, get_peft_model
-from transformers import AutoTokenizer
-from trl import SFTTrainer, SFTConfig
+from transformers import AutoTokenizer, TrainingArguments
+from trl import SFTTrainer
 
 try:
     from unsloth import FastLanguageModel
@@ -71,13 +71,6 @@ def load_model_and_tokenizer(cfg: dict):
             ),
         )
 
-    # Unsloth sets eos_token to the placeholder '<EOS_TOKEN>' which is not
-    # in the fast tokenizer vocabulary — trl 5.x validates this and raises.
-    # Reset to the real token string that corresponds to eos_token_id.
-    if tokenizer.eos_token not in tokenizer.get_vocab():
-        real_eos = tokenizer.convert_ids_to_tokens(tokenizer.eos_token_id)
-        tokenizer.eos_token = real_eos
-
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -104,46 +97,42 @@ def load_train_val_datasets(cfg: dict, tokenizer):
 def build_sft_trainer(model, tokenizer, train_ds, val_ds, cfg: dict) -> SFTTrainer:
     t = cfg["training"]
 
-    # SFTConfig extends TrainingArguments and owns SFT-specific params
-    # (dataset_text_field, max_seq_length) — trl v0.9+ removed them from SFTTrainer directly
-    sft_cfg = SFTConfig(
-        # SFT-specific
-        dataset_text_field=cfg["data"].get("text_column", "text"),
-        # Unsloth's tokenizer doesn't have <EOS_TOKEN> in vocabulary —
-        # skip trl's automatic special-token appending since our Alpaca
-        # formatted data is already complete
-        dataset_kwargs={"add_special_tokens": False},
-        # Training
-        output_dir=t["output_dir"],
-        num_train_epochs=t["num_train_epochs"],
-        per_device_train_batch_size=t["per_device_train_batch_size"],
-        per_device_eval_batch_size=t["per_device_eval_batch_size"],
-        gradient_accumulation_steps=t["gradient_accumulation_steps"],
-        learning_rate=t["learning_rate"],
-        weight_decay=t["weight_decay"],
-        warmup_steps=int(t["warmup_ratio"] * t["num_train_epochs"] * 2434),
-        lr_scheduler_type=t["lr_scheduler_type"],
-        optim=t["optim"],
-        fp16=t["fp16"],
-        bf16=t["bf16"],
-        logging_steps=t["logging_steps"],
-        eval_strategy="steps",
-        eval_steps=t["eval_steps"],
-        save_strategy="steps",
-        save_steps=t["save_steps"],
-        save_total_limit=t["save_total_limit"],
-        load_best_model_at_end=t["load_best_model_at_end"],
-        metric_for_best_model=t["metric_for_best_model"],
-        report_to=t["report_to"],
-        seed=t["seed"],
-    )
-
+    # Use Unsloth's patched SFTTrainer API — Unsloth patches trl internally so
+    # tokenizer=, dataset_text_field=, and max_seq_length= work regardless of
+    # trl version, bypassing trl 5.x vocabulary validation that breaks on
+    # Unsloth's legacy tokenizer placeholder eos_token '<EOS_TOKEN>'.
     return SFTTrainer(
         model=model,
-        processing_class=tokenizer,
+        tokenizer=tokenizer,
         train_dataset=train_ds,
         eval_dataset=val_ds,
-        args=sft_cfg,
+        dataset_text_field=cfg["data"].get("text_column", "text"),
+        max_seq_length=cfg["model"]["max_seq_length"],
+        dataset_num_proc=2,
+        args=TrainingArguments(
+            output_dir=t["output_dir"],
+            num_train_epochs=t["num_train_epochs"],
+            per_device_train_batch_size=t["per_device_train_batch_size"],
+            per_device_eval_batch_size=t["per_device_eval_batch_size"],
+            gradient_accumulation_steps=t["gradient_accumulation_steps"],
+            learning_rate=t["learning_rate"],
+            weight_decay=t["weight_decay"],
+            warmup_ratio=t["warmup_ratio"],
+            lr_scheduler_type=t["lr_scheduler_type"],
+            optim=t["optim"],
+            fp16=t["fp16"],
+            bf16=t["bf16"],
+            logging_steps=t["logging_steps"],
+            eval_strategy="steps",
+            eval_steps=t["eval_steps"],
+            save_strategy="steps",
+            save_steps=t["save_steps"],
+            save_total_limit=t["save_total_limit"],
+            load_best_model_at_end=t["load_best_model_at_end"],
+            metric_for_best_model=t["metric_for_best_model"],
+            report_to=t["report_to"],
+            seed=t["seed"],
+        ),
     )
 
 
