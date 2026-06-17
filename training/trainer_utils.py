@@ -71,6 +71,13 @@ def load_model_and_tokenizer(cfg: dict):
             ),
         )
 
+    # Unsloth sets eos_token to the placeholder '<EOS_TOKEN>' which is not
+    # in the fast tokenizer vocabulary — trl 5.x validates this and raises.
+    # Reset to the real token string that corresponds to eos_token_id.
+    if tokenizer.eos_token not in tokenizer.get_vocab():
+        real_eos = tokenizer.convert_ids_to_tokens(tokenizer.eos_token_id)
+        tokenizer.eos_token = real_eos
+
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
