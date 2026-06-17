@@ -122,7 +122,7 @@ def build_sft_trainer(model, tokenizer, train_ds, val_ds, cfg: dict) -> SFTTrain
             gradient_accumulation_steps=t["gradient_accumulation_steps"],
             learning_rate=t["learning_rate"],
             weight_decay=t["weight_decay"],
-            warmup_ratio=t["warmup_ratio"],
+            warmup_steps=t.get("warmup_steps", int(0.03 * t.get("num_train_epochs", 3) * 305)),
             lr_scheduler_type=t["lr_scheduler_type"],
             optim=t["optim"],
             fp16=t["fp16"],
