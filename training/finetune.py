@@ -15,6 +15,12 @@ Kaggle 2x T4 (run as plain python, NOT accelerate launch):
 import argparse
 from pathlib import Path
 
+# Unsloth must be first import to patch trl/transformers before they load
+try:
+    import unsloth
+except ImportError:
+    pass
+
 import yaml
 
 from training.trainer_utils import (

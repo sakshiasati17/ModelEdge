@@ -4,19 +4,24 @@ import json
 import os
 from pathlib import Path
 
+# Unsloth MUST be imported before trl/transformers/peft so its patches apply.
+# Without this, trl's SFTTrainer runs unpatched and fails on Unsloth's
+# legacy tokenizer placeholder eos_token '<EOS_TOKEN>'.
+try:
+    import unsloth
+    from unsloth import FastLanguageModel
+    UNSLOTH_AVAILABLE = True
+except ImportError:
+    UNSLOTH_AVAILABLE = False
+
 import torch
 import wandb
 from datasets import Dataset
 from peft import LoraConfig, get_peft_model
-from transformers import AutoTokenizer, TrainingArguments
+from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
 from trl import SFTTrainer
 
-try:
-    from unsloth import FastLanguageModel
-    UNSLOTH_AVAILABLE = True
-except ImportError:
-    from transformers import AutoModelForCausalLM
-    UNSLOTH_AVAILABLE = False
+if not UNSLOTH_AVAILABLE:
     print("[train] Unsloth not found — falling back to standard HuggingFace loading.")
 
 
