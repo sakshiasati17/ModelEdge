@@ -8,15 +8,19 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 
 def export_bnb_int8(model_path: str, output_path: str):
-    """Load a model and re-save with INT8 BitsAndBytes config."""
-    bnb_config = BitsAndBytesConfig(
-        load_in_8bit=True,
-        bnb_8bit_compute_dtype=torch.float16,
-    )
+    """
+    Save a copy of the model with a BitsAndBytes INT8 config embedded.
+
+    BNB INT8 is load-time only — weights on disk stay in FP16.
+    We copy the model weights as-is and write a config that tells
+    transformers to apply INT8 quantization at load time.
+    """
     tokenizer = AutoTokenizer.from_pretrained(model_path)
+
+    # Load in FP16 (not quantized) so save_pretrained works
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
-        quantization_config=bnb_config,
+        torch_dtype=torch.float16,
         device_map="auto",
     )
 
@@ -25,11 +29,17 @@ def export_bnb_int8(model_path: str, output_path: str):
     model.save_pretrained(str(out))
     tokenizer.save_pretrained(str(out))
 
-    config_extra = {"quantization_bits": 8, "quantization_method": "bitsandbytes"}
+    # Record that this path should be loaded with INT8 at inference time
+    quant_info = {
+        "quantization_bits": 8,
+        "quantization_method": "bitsandbytes",
+        "load_instruction": "Use BitsAndBytesConfig(load_in_8bit=True) when loading this model.",
+    }
     with open(out / "quant_info.json", "w") as f:
-        json.dump(config_extra, f, indent=2)
+        json.dump(quant_info, f, indent=2)
 
-    print(f"[quant] INT8 model saved → {out}")
+    print(f"[quant] INT8-ready model saved → {out}")
+    print("[quant] Note: weights are FP16 on disk. Pass load_in_8bit=True at load time.")
 
 
 def export_awq_int4(model_path: str, output_path: str, calib_data_path: str):
@@ -45,7 +55,8 @@ def export_awq_int4(model_path: str, output_path: str, calib_data_path: str):
     calib_texts = _load_calib_texts(calib_data_path)
 
     tokenizer = AutoTokenizer.from_pretrained(model_path)
-    model = AutoAWQForCausalLM.from_pretrained(model_path, safetensors=True)
+    # safetensors=True removed — autoawq detects format automatically
+    model = AutoAWQForCausalLM.from_pretrained(model_path)
 
     quant_config = {
         "zero_point": True,
@@ -60,9 +71,9 @@ def export_awq_int4(model_path: str, output_path: str, calib_data_path: str):
     model.save_quantized(str(out))
     tokenizer.save_pretrained(str(out))
 
-    config_extra = {"quantization_bits": 4, "quantization_method": "awq"}
+    quant_info = {"quantization_bits": 4, "quantization_method": "awq"}
     with open(out / "quant_info.json", "w") as f:
-        json.dump(config_extra, f, indent=2)
+        json.dump(quant_info, f, indent=2)
 
     print(f"[quant] INT4 AWQ model saved → {out}")
 
@@ -94,7 +105,6 @@ def verify_quantized_model(model_path: str, bits: int):
     else:
         try:
             from awq import AutoAWQForCausalLM
-
             model = AutoAWQForCausalLM.from_quantized(model_path, fuse_layers=True)
         except ImportError:
             model = AutoModelForCausalLM.from_pretrained(model_path, device_map="auto")

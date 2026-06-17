@@ -63,7 +63,6 @@ def _generate_answer(model, tokenizer, prompt: str, max_new_tokens: int = 64) ->
             **inputs,
             max_new_tokens=max_new_tokens,
             do_sample=False,
-            temperature=1.0,
             pad_token_id=tokenizer.eos_token_id,
         )
     generated = out[0][inputs["input_ids"].shape[1]:]

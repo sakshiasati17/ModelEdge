@@ -100,9 +100,9 @@ def build_sft_trainer(model, tokenizer, train_ds, val_ds, cfg: dict) -> SFTTrain
     # SFTConfig extends TrainingArguments and owns SFT-specific params
     # (dataset_text_field, max_seq_length) — trl v0.9+ removed them from SFTTrainer directly
     sft_cfg = SFTConfig(
-        # SFT-specific
+        # SFT-specific (max_seq_length removed from SFTConfig in trl 5.x —
+        # Unsloth sets it at model load time via FastLanguageModel.from_pretrained)
         dataset_text_field=cfg["data"].get("text_column", "text"),
-        max_seq_length=cfg["model"]["max_seq_length"],
         # Training
         output_dir=t["output_dir"],
         num_train_epochs=t["num_train_epochs"],
