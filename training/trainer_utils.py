@@ -100,9 +100,12 @@ def build_sft_trainer(model, tokenizer, train_ds, val_ds, cfg: dict) -> SFTTrain
     # SFTConfig extends TrainingArguments and owns SFT-specific params
     # (dataset_text_field, max_seq_length) — trl v0.9+ removed them from SFTTrainer directly
     sft_cfg = SFTConfig(
-        # SFT-specific (max_seq_length removed from SFTConfig in trl 5.x —
-        # Unsloth sets it at model load time via FastLanguageModel.from_pretrained)
+        # SFT-specific
         dataset_text_field=cfg["data"].get("text_column", "text"),
+        # Unsloth's tokenizer doesn't have <EOS_TOKEN> in vocabulary —
+        # skip trl's automatic special-token appending since our Alpaca
+        # formatted data is already complete
+        dataset_kwargs={"add_special_tokens": False},
         # Training
         output_dir=t["output_dir"],
         num_train_epochs=t["num_train_epochs"],
