@@ -16,7 +16,7 @@ from benchmarking.memory import run_memory_benchmark
 
 import os as _os
 
-_BASE = _os.environ.get("MODELEDGE_OUTPUT_DIR", "outputs")
+_BASE = _os.environ.get("MODELEDGE_OUTPUT_DIR", "/kaggle/working/outputs")
 
 MODEL_PATHS = {
     "fp16": f"{_BASE}/finetuned",
