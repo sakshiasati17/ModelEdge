@@ -32,13 +32,9 @@ def _load_model_and_tokenizer(model_path: str, quant_bits: Optional[int]):
             model_path, quantization_config=bnb, device_map="auto"
         )
     elif quant_bits == 4:
-        try:
-            from awq import AutoAWQForCausalLM
-
-            model = AutoAWQForCausalLM.from_quantized(model_path, fuse_layers=True)
-        except ImportError:
-            model = AutoModelForCausalLM.from_pretrained(
-                model_path, device_map="auto"
+        bnb4 = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path, quantization_config=bnb4, device_map="auto"
             )
     else:
         model = AutoModelForCausalLM.from_pretrained(

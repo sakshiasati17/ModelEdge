@@ -43,39 +43,30 @@ def export_bnb_int8(model_path: str, output_path: str):
 
 
 def export_awq_int4(model_path: str, output_path: str, calib_data_path: str):
-    """Quantize to INT4 using AutoAWQ with calibration data."""
-    try:
-        from awq import AutoAWQForCausalLM
-    except ImportError:
-        raise RuntimeError(
-            "autoawq is required for INT4 quantization. "
-            "Install it with: pip install autoawq"
-        )
-
-    calib_texts = _load_calib_texts(calib_data_path)
-
+    """Save model for INT4 BitsAndBytes loading (AutoAWQ is deprecated/broken on transformers>=4.52).
+    Weights stay FP16 on disk; pass load_in_4bit=True at load time."""
     tokenizer = AutoTokenizer.from_pretrained(model_path)
-    # safetensors=True removed — autoawq detects format automatically
-    model = AutoAWQForCausalLM.from_pretrained(model_path)
-
-    quant_config = {
-        "zero_point": True,
-        "q_group_size": 128,
-        "w_bit": 4,
-        "version": "GEMM",
-    }
-    model.quantize(tokenizer, quant_config=quant_config, calib_data=calib_texts)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
+        dtype=torch.float16,
+        device_map="auto",
+    )
 
     out = Path(output_path)
     out.mkdir(parents=True, exist_ok=True)
-    model.save_quantized(str(out))
+    model.save_pretrained(str(out))
     tokenizer.save_pretrained(str(out))
 
-    quant_info = {"quantization_bits": 4, "quantization_method": "awq"}
+    quant_info = {
+        "quantization_bits": 4,
+        "quantization_method": "bitsandbytes",
+        "load_instruction": "Use BitsAndBytesConfig(load_in_4bit=True) when loading this model.",
+    }
     with open(out / "quant_info.json", "w") as f:
         json.dump(quant_info, f, indent=2)
 
-    print(f"[quant] INT4 AWQ model saved → {out}")
+    print(f"[quant] INT4-ready model saved → {out}")
+    print("[quant] Note: weights are FP16 on disk. Pass load_in_4bit=True at load time.")
 
 
 def _load_calib_texts(jsonl_path: str, max_samples: int = 128) -> list[str]:
@@ -103,11 +94,10 @@ def verify_quantized_model(model_path: str, bits: int):
             model_path, quantization_config=bnb_config, device_map="auto"
         )
     else:
-        try:
-            from awq import AutoAWQForCausalLM
-            model = AutoAWQForCausalLM.from_quantized(model_path, fuse_layers=True)
-        except ImportError:
-            model = AutoModelForCausalLM.from_pretrained(model_path, device_map="auto")
+        bnb4 = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path, quantization_config=bnb4, device_map="auto"
+        )
 
     with torch.no_grad():
         out = model.generate(**inputs.to(model.device), max_new_tokens=20)
