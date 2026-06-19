@@ -3,7 +3,8 @@
 from typing import Optional
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+
+from benchmarking._model_loader import load_model_and_tokenizer
 
 
 def _peak_vram_gb() -> float:
@@ -21,26 +22,7 @@ def run_memory_benchmark(
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
 
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-
-    if quant_bits == 8:
-        bnb = BitsAndBytesConfig(load_in_8bit=True, bnb_8bit_compute_dtype=torch.float16)
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path, quantization_config=bnb, device_map="auto"
-        )
-    elif quant_bits == 4:
-        bnb4 = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16)
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path, quantization_config=bnb4, device_map="auto"
-        )
-    else:
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path, torch_dtype=torch.float16, device_map="auto"
-        )
-
-    model.eval()
+    model, tokenizer = load_model_and_tokenizer(model_path, quant_bits)
 
     inputs = tokenizer("What are symptoms of hypertension?", return_tensors="pt")
     if torch.cuda.is_available():
@@ -49,9 +31,8 @@ def run_memory_benchmark(
         model.generate(**inputs, max_new_tokens=32)
 
     vram_gb = _peak_vram_gb()
-
     n_params = sum(p.numel() for p in model.parameters())
-    param_gb = n_params * 2 / (1024**3)  # FP16 baseline estimate
+    param_gb = n_params * 2 / (1024**3)
 
     results = {
         "vram_gb": vram_gb,

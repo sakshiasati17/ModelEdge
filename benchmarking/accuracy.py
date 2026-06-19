@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Optional
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+
+from benchmarking._model_loader import load_model_and_tokenizer
 
 INSTRUCTION_PROMPT = (
     "Below is a medical question. Answer it accurately and concisely.\n\n"
@@ -29,29 +30,6 @@ HALLUCINATION_CONFIDENCE_PATTERNS = [
     r"\b(definitely|certainly|absolutely|always|never|clearly|obviously)\b",
     r"\b(the answer is|it is|this is|that is)\b",
 ]
-
-
-def _load_model(model_path: str, quant_bits: Optional[int]):
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-
-    if quant_bits == 8:
-        bnb = BitsAndBytesConfig(load_in_8bit=True, bnb_8bit_compute_dtype=torch.float16)
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path, quantization_config=bnb, device_map="auto"
-        )
-    elif quant_bits == 4:
-        bnb4 = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16)
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path, quantization_config=bnb4, device_map="auto"
-        )
-    else:
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path, torch_dtype=torch.float16, device_map="auto"
-        )
-    model.eval()
-    return model, tokenizer
 
 
 def _generate_answer(model, tokenizer, prompt: str, max_new_tokens: int = 64) -> str:
@@ -101,7 +79,7 @@ def run_accuracy_benchmark(
     max_samples: int = 200,
 ) -> dict:
     print(f"[accuracy] Loading model from {model_path} ...")
-    model, tokenizer = _load_model(model_path, quant_bits)
+    model, tokenizer = load_model_and_tokenizer(model_path, quant_bits)
 
     records = []
     with open(test_file) as f:
