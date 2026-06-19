@@ -35,7 +35,7 @@ def _load_model_and_tokenizer(model_path: str, quant_bits: Optional[int]):
         bnb4 = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16)
         model = AutoModelForCausalLM.from_pretrained(
             model_path, quantization_config=bnb4, device_map="auto"
-            )
+        )
     else:
         model = AutoModelForCausalLM.from_pretrained(
             model_path, torch_dtype=torch.float16, device_map="auto"

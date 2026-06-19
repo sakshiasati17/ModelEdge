@@ -23,7 +23,7 @@ INSTRUCTION_PROMPT = (
     "### Response:\n"
 )
 
-OPTION_LABELS = list("ABCDE")
+OPTION_LABELS = list("ABCDEFGHIJ")
 
 HALLUCINATION_CONFIDENCE_PATTERNS = [
     r"\b(definitely|certainly|absolutely|always|never|clearly|obviously)\b",

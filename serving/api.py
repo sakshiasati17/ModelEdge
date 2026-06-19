@@ -103,7 +103,10 @@ async def infer(req: InferenceRequest):
 
     elapsed_ms = (time.perf_counter() - start) * 1000
     data = resp.json()
-    answer = data["choices"][0]["message"]["content"].strip()
+    choices = data.get("choices", [])
+    if not choices:
+        raise HTTPException(status_code=502, detail="vLLM returned empty choices")
+    answer = choices[0]["message"]["content"].strip()
     model_id = data.get("model", _model_name)
 
     return InferenceResponse(answer=answer, latency_ms=elapsed_ms, model=model_id)
@@ -111,7 +114,7 @@ async def infer(req: InferenceRequest):
 
 def _build_prompt(question: str, choices: Optional[list[str]]) -> str:
     if choices:
-        labels = "ABCDE"
+        labels = "ABCDEFGHIJ"
         opts = "\n".join(f"{labels[i]}. {c}" for i, c in enumerate(choices))
         return f"{question}\n\nOptions:\n{opts}"
     return question
