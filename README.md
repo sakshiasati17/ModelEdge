@@ -144,19 +144,28 @@ kubectl get hpa
 
 ## Benchmark Results
 
-| Model State | Latency p50 | VRAM (GB) | Accuracy | Hallucination Rate |
-|-------------|-------------|-----------|----------|---------------------|
-| Base FP16   | TBD         | TBD       | TBD      | TBD                 |
-| Fine-tuned FP16 | TBD     | TBD       | TBD      | TBD                 |
-| Fine-tuned INT4 | TBD     | TBD       | TBD      | TBD                 |
+QLoRA fine-tune of `unsloth/Llama-3.2-3B-Instruct` on MedQA-USMLE (9,733 train / 1,145 val), 3 epochs / 423 steps on Kaggle 2× T4. Run: 2026-06-22 → 06-23. Train loss 1.94 → 1.14, best eval loss **1.21**. Accuracy = exact-match (ground-truth answer string contained in first 64 generated tokens), evaluated on 200 held-out test questions.
 
-> Results will be populated after the training run on Kaggle 2x T4 completes — see [Roadmap](#roadmap).
+| Model State     | Latency p50 | Latency p95 | VRAM (GB) | Accuracy | Hallucination Rate |
+|-----------------|-------------|-------------|-----------|----------|---------------------|
+| Base FP16       | 6634.6 ms   | 6689.4 ms   | 5.98      | 0.635    | 0.035               |
+| Fine-tuned FP16 | 9864.3 ms   | 9956.0 ms   | 3.95      | 0.550    | 0.095               |
+| Fine-tuned INT8 | 10034.2 ms  | 10153.5 ms  | 7.62      | 0.550    | 0.095               |
+| Fine-tuned INT4 | 10022.0 ms  | 10097.2 ms  | 8.93      | 0.550    | 0.095               |
+
+> ⚠️ **These numbers expose two problems, not a clean win.** (1) The fine-tuned model scores **lower** than base on exact-match accuracy (0.55 vs 0.64) and hallucinates **more** (0.095 vs 0.035) — fine-tuning taught it to answer verbosely, so the short ground-truth string is less often a substring and the confidence-phrase hallucination heuristic fires more. Eval *loss* improved, but the downstream MCQ metric regressed. (2) The quantization VRAM column is inverted (INT4 8.93 GB > FP16 base 5.98 GB) and FP16/INT8/INT4 accuracy is byte-identical — both are artifacts of the benchmark's load path (the adapter is merged in FP16 and re-loaded, so peak VRAM double-counts and all finetuned variants collapse to effectively the same quantized weights). See [Failure Analysis](#failure-analysis). Full run log and qualitative samples in [`RESULTS.md`](RESULTS.md).
 
 ---
 
 ## Failure Analysis
 
-After benchmarking, a sample of incorrect responses will be manually reviewed and categorized by failure type (e.g. rare drug names, multi-step reasoning, numerical dosage errors). This taxonomy will be added here alongside the Streamlit dashboard.
+The first benchmark run surfaced three issues worth fixing before drawing conclusions about fine-tuning quality:
+
+1. **Verbosity regression.** The fine-tuned model rambles instead of answering concisely — e.g. for a ground truth of `Captopril` it returns a paragraph on hydrochlorothiazide. The `exact_match` metric (`ground_truth.lower() in prediction.lower()`) penalizes this, and the long, assertive prose trips the hallucination heuristic. The fix is either a stricter generation/stop config at eval time, or an option-letter–based scorer instead of raw substring match.
+2. **Quantization not measured in isolation.** `benchmarking/_model_loader.py` merges the LoRA adapter in FP16 and then re-saves/re-loads it under BitsAndBytes, so peak VRAM double-counts the transient FP16 copy (INT4 reports *more* VRAM than FP16 base) and all three finetuned precisions converge to identical accuracy. Quantized memory/accuracy should be profiled in a fresh process per model, or by loading the merged checkpoint once and quantizing in place.
+3. **Latency inversion.** Base (FP16, ~6.6 s) is faster than the finetuned/quantized variants (~10 s) — BitsAndBytes dequant overhead on T4 dominates, so quantization here trades speed for (intended) memory savings rather than improving latency.
+
+A per-question failure taxonomy (rare drug names, multi-step reasoning, numerical dosage errors) will be added alongside the Streamlit dashboard once the scorer and quant-profiling fixes above are in.
 
 ---
 
@@ -170,10 +179,10 @@ After benchmarking, a sample of incorrect responses will be manually reviewed an
 | Benchmarking suite | ✅ Complete |
 | Serving layer (vLLM + FastAPI + Streamlit) | ✅ Complete |
 | Kubernetes deployment manifests | ✅ Complete |
-| Training run on Kaggle 2x T4 | ⏳ In progress |
-| Quantized model benchmarks (real numbers) | ⏳ Pending training |
-| Load testing under Kubernetes | ⏳ Pending training |
-| Failure analysis | ⏳ Pending benchmarks |
+| Training run on Kaggle 2x T4 | ✅ Complete (3 epochs, eval loss 1.21) |
+| Quantized model benchmarks (real numbers) | ✅ Complete — surfaced metric/loader bugs (see Failure Analysis) |
+| Load testing under Kubernetes | ⏳ Pending |
+| Failure analysis | 🔄 In progress — fixing scorer + quant profiling |
 
 ---
 
