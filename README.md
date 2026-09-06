@@ -46,7 +46,7 @@ The project is built around a real production deployment pattern — **vLLM + Fa
 |---|--------|-------------|
 | 1 | [`data/`](data/) | Downloads MedQA / PubMedQA, cleans records, formats to Alpaca instruction style |
 | 2 | [`training/`](training/) | QLoRA fine-tuning with Unsloth, multi-GPU via HuggingFace Accelerate |
-| 3 | [`quantization/`](quantization/) | FP16 → INT8 (BitsAndBytes) → INT4 (AWQ) |
+| 3 | [`quantization/`](quantization/) | FP16 → INT8 → INT4 (BitsAndBytes) |
 | 4 | [`benchmarking/`](benchmarking/) | Latency (p50/p95), VRAM footprint, task accuracy, hallucination rate |
 | 5 | [`serving/`](serving/) | vLLM-backed FastAPI, Streamlit comparison dashboard, concurrent load tester |
 | 6 | [`deployment/`](deployment/) | Kubernetes manifests — Deployments, Services, ConfigMap, HPA |
@@ -60,7 +60,7 @@ The project is built around a real production deployment pattern — **vLLM + Fa
 | Base model | Llama-3.2-3B / Phi-3.5-mini |
 | Fine-tuning | HuggingFace Transformers, PEFT, Accelerate |
 | Training speed-up | **Unsloth** (~2× faster QLoRA) |
-| Quantization | BitsAndBytes (INT8), AWQ (INT4) |
+| Quantization | BitsAndBytes (INT8 + INT4) |
 | Experiment tracking | Weights & Biases |
 | Inference serving | vLLM |
 | API layer | FastAPI |
@@ -84,7 +84,7 @@ ModelEdge/
 │   └── trainer_utils.py        # Model loading, tokenization, W&B, checkpointing
 ├── quantization/
 │   ├── quantize.py             # INT8 + INT4 entry point
-│   └── quant_utils.py          # BitsAndBytes + AWQ helpers
+│   └── quant_utils.py          # BitsAndBytes INT8 / INT4 helpers
 ├── benchmarking/
 │   ├── run_benchmark.py        # Full benchmark suite across model states
 │   ├── latency.py              # p50 / p95 latency
@@ -144,13 +144,20 @@ kubectl get hpa
 
 ## Benchmark Results
 
-| Model State | Latency p50 | VRAM (GB) | Accuracy | Hallucination Rate |
-|-------------|-------------|-----------|----------|---------------------|
-| Base FP16   | TBD         | TBD       | TBD      | TBD                 |
-| Fine-tuned FP16 | TBD     | TBD       | TBD      | TBD                 |
-| Fine-tuned INT4 | TBD     | TBD       | TBD      | TBD                 |
+Fine-tuned on 9,733 MedQA-USMLE examples (3 epochs, single T4), evaluated on 200 held-out questions:
 
-> Results will be populated after the training run on Kaggle 2x T4 completes — see [Roadmap](#roadmap).
+| Model State     | Latency p50 | VRAM (GB)* | Accuracy** | Hallucination Rate |
+|-----------------|-------------|------------|------------|---------------------|
+| Base FP16       | 6,634.6 ms  | 5.98       | 0.635      | 0.035               |
+| Fine-tuned FP16 | 9,864.3 ms  | 3.95       | 0.550      | 0.095               |
+| Fine-tuned INT8 | 10,034.2 ms | 7.62       | 0.550      | 0.095               |
+| Fine-tuned INT4 | 10,022.0 ms | 8.93       | 0.550      | 0.095               |
+
+Training: loss 1.94 → 1.14, eval loss 1.26 → 1.21 over 423 steps (~5.8 h). Adapter: 24.3M trainable params of 3.24B (0.75%), 93 MB.
+
+> **\* VRAM figures are not yet reliable.** Each state was profiled in a single shared process with an in-place merge-and-reload step, so lower-precision states report inflated peaks (INT4 > FP16). Re-measuring each state in an isolated process is open work.
+>
+> **\*\* Accuracy uses exact substring match**, which penalizes correct-but-verbose answers. Inspecting outputs, the fine-tuned drop is partly this scoring artifact and partly genuine error. An option-letter / judge-based scorer (`choices` are now persisted per record to enable it) is the planned fix.
 
 ---
 
@@ -170,10 +177,10 @@ After benchmarking, a sample of incorrect responses will be manually reviewed an
 | Benchmarking suite | ✅ Complete |
 | Serving layer (vLLM + FastAPI + Streamlit) | ✅ Complete |
 | Kubernetes deployment manifests | ✅ Complete |
-| Training run on Kaggle 2x T4 | ⏳ In progress |
-| Quantized model benchmarks (real numbers) | ⏳ Pending training |
-| Load testing under Kubernetes | ⏳ Pending training |
-| Failure analysis | ⏳ Pending benchmarks |
+| Training run on Kaggle 2x T4 | ✅ Complete |
+| Quantized model benchmarks (real numbers) | ✅ Complete |
+| Load testing under Kubernetes | ⏳ Pending |
+| Failure analysis | ⏳ Pending |
 
 ---
 
