@@ -3,13 +3,14 @@ FastAPI wrapper around a vLLM-served model.
 
 Start the vLLM server first:
     python -m vllm.entrypoints.openai.api_server \
-        --model outputs/finetuned_int4_awq \
+        --model outputs/finetuned_int4 \
         --host 0.0.0.0 --port 8001
 
 Then start this API:
     uvicorn serving.api:app --host 0.0.0.0 --port 8000
 """
 
+import os
 import time
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -18,7 +19,7 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-VLLM_BASE_URL = "http://localhost:8001/v1"
+VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8001/v1")
 
 SYSTEM_INSTRUCTION = (
     "You are a knowledgeable medical assistant. "
@@ -29,8 +30,8 @@ SYSTEM_INSTRUCTION = (
 _model_name: str = "unknown"
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+async def _refresh_model_name() -> str:
+    """Fetch the served model id from vLLM. Safe to call repeatedly."""
     global _model_name
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -41,6 +42,13 @@ async def lifespan(app: FastAPI):
                     _model_name = models[0]["id"]
     except Exception:
         pass
+    return _model_name
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Best-effort at startup; if vLLM isn't up yet, /infer retries lazily.
+    await _refresh_model_name()
     yield
 
 
@@ -81,8 +89,13 @@ async def health():
 async def infer(req: InferenceRequest):
     prompt = _build_prompt(req.question, req.choices)
 
+    # If vLLM was unreachable at startup, try once more now.
+    model_name = _model_name
+    if model_name == "unknown":
+        model_name = await _refresh_model_name()
+
     payload = {
-        "model": _model_name,
+        "model": model_name,
         "messages": [
             {"role": "system", "content": SYSTEM_INSTRUCTION},
             {"role": "user", "content": prompt},
