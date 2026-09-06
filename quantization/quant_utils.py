@@ -61,9 +61,8 @@ def export_bnb_int8(model_path: str, output_path: str):
     print("[quant] Note: weights are FP16 on disk. Pass load_in_8bit=True at load time.")
 
 
-def export_awq_int4(model_path: str, output_path: str, calib_data_path: str):
-    """Save merged FP16 weights — load with load_in_4bit=True at inference time.
-    AutoAWQ is deprecated and broken on transformers>=4.52; using BitsAndBytes instead."""
+def export_bnb_int4(model_path: str, output_path: str):
+    """Save merged FP16 weights — load with load_in_4bit=True (BitsAndBytes) at inference time."""
     model, tokenizer = _load_base_model(model_path)
 
     out = Path(output_path)
