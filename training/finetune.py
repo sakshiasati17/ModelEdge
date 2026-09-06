@@ -13,6 +13,7 @@ Kaggle 2x T4 (run as plain python, NOT accelerate launch):
 """
 
 import argparse
+import os
 from pathlib import Path
 
 # Unsloth must be first import to patch trl/transformers before they load
@@ -45,6 +46,12 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+
+    # Allow the output location to be overridden without editing the config
+    # (matches MODELEDGE_OUTPUT_DIR used by the benchmark suite).
+    out_base = os.environ.get("MODELEDGE_OUTPUT_DIR")
+    if out_base:
+        cfg["training"]["output_dir"] = str(Path(out_base) / "finetuned")
 
     setup_wandb(cfg)
 

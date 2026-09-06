@@ -21,8 +21,8 @@ def load_model_and_tokenizer(model_path: str, quant_bits: Optional[int]):
     """Load a model from a local path or HF hub ID.
 
     If the path contains adapter_config.json (PEFT/LoRA adapter), loads the
-    base model and merges the adapter before returning, avoiding the broken
-    AWQ dispatch path in PEFT when autoawq is installed but broken.
+    base model and merges the adapter before returning, so quantization is
+    applied to a standalone merged model rather than through the adapter.
     """
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     if tokenizer.pad_token is None:

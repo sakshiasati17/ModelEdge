@@ -37,6 +37,7 @@ def format_alpaca(record: dict) -> dict:
         "instruction": instruction,
         "input": inp,
         "output": output,
+        "choices": record["choices"],
     }
 
 
@@ -63,6 +64,7 @@ def format_chat_template(record: dict) -> dict:
         "instruction": record["question"],
         "input": choices_text,
         "output": record["answer"],
+        "choices": record["choices"],
     }
 
 
