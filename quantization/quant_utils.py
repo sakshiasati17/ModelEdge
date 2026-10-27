@@ -4,40 +4,23 @@ import json
 from pathlib import Path
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+from benchmarking._model_loader import bnb_config_for, merge_adapter
+from benchmarking.adapter_utils import is_peft_adapter
 
 
 def _load_base_model(model_path: str):
-    """Load model as plain FP16, merging any PEFT adapter so weights are standalone."""
+    """Load model as plain FP16, merging any PEFT adapter into its full-precision base."""
     tokenizer = AutoTokenizer.from_pretrained(model_path)
-    try:
-        from peft import PeftModel
-        base_name = _get_base_model_name(model_path)
-        if base_name:
-            base = AutoModelForCausalLM.from_pretrained(
-                base_name, torch_dtype=torch.float16, device_map="auto"
-            )
-            model = PeftModel.from_pretrained(base, model_path)
-            model = model.merge_and_unload()
-        else:
-            model = AutoModelForCausalLM.from_pretrained(
-                model_path, torch_dtype=torch.float16, device_map="auto"
-            )
-    except Exception:
+    if is_peft_adapter(model_path):
+        # CPU merge: only the merged weights are saved, nothing needs the GPU.
+        model = merge_adapter(model_path, device_map="cpu")
+    else:
         model = AutoModelForCausalLM.from_pretrained(
-            model_path, torch_dtype=torch.float16, device_map="auto"
+            model_path, torch_dtype=torch.float16, device_map="cpu"
         )
     return model, tokenizer
-
-
-def _get_base_model_name(adapter_path: str) -> str | None:
-    """Read base_model_name_or_path from adapter_config.json if present."""
-    cfg_path = Path(adapter_path) / "adapter_config.json"
-    if cfg_path.exists():
-        with open(cfg_path) as f:
-            cfg = json.load(f)
-        return cfg.get("base_model_name_or_path")
-    return None
 
 
 def export_bnb_int8(model_path: str, output_path: str):
@@ -90,16 +73,7 @@ def verify_quantized_model(model_path: str, bits: int):
         tokenizer.pad_token = tokenizer.eos_token
     inputs = tokenizer("What is hypertension?", return_tensors="pt")
 
-    if bits == 8:
-        bnb_config = BitsAndBytesConfig(
-            load_in_8bit=True, bnb_8bit_compute_dtype=torch.float16
-        )
-    else:
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.float16,
-        )
+    bnb_config = bnb_config_for(bits)
 
     model = AutoModelForCausalLM.from_pretrained(
         model_path, quantization_config=bnb_config, device_map="auto"

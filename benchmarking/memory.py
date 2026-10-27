@@ -1,44 +1,67 @@
-"""VRAM and RAM memory profiling for a loaded model."""
+"""VRAM profiling for a loaded model.
 
-from typing import Optional
+Run in a fresh process per model state (run_benchmark does this) so the peak
+reflects only that model. Totals are summed over all visible GPUs, since
+device_map="auto" may split a model across both T4s.
+"""
 
 import torch
 
 from benchmarking._model_loader import load_model_and_tokenizer
 
+GB = 1024**3
 
-def _peak_vram_gb() -> float:
-    if not torch.cuda.is_available():
-        return 0.0
-    return torch.cuda.max_memory_allocated() / (1024**3)
+
+def _gpu_ids() -> list[int]:
+    return list(range(torch.cuda.device_count())) if torch.cuda.is_available() else []
+
+
+def reset_peak_vram():
+    for i in _gpu_ids():
+        torch.cuda.reset_peak_memory_stats(i)
+
+
+def allocated_vram_gb() -> float:
+    return sum(torch.cuda.memory_allocated(i) for i in _gpu_ids()) / GB
+
+
+def peak_vram_gb() -> float:
+    return sum(torch.cuda.max_memory_allocated(i) for i in _gpu_ids()) / GB
 
 
 def run_memory_benchmark(
-    model_path: str,
-    quant_bits: Optional[int] = None,
+    model_path: str | None,
+    quant_bits: int | None = None,
+    model=None,
+    tokenizer=None,
 ) -> dict:
-    print(f"[memory] Profiling {model_path} ...")
+    """Weights footprint plus peak VRAM over loading and a short generation.
 
-    if torch.cuda.is_available():
-        torch.cuda.reset_peak_memory_stats()
+    Pass model/tokenizer to profile an already-loaded model; the caller must
+    then have called reset_peak_vram() before loading it.
+    """
+    if model is None:
+        print(f"[memory] Profiling {model_path} ...")
+        reset_peak_vram()
+        model, tokenizer = load_model_and_tokenizer(model_path, quant_bits)
 
-    model, tokenizer = load_model_and_tokenizer(model_path, quant_bits)
+    weights_gb = allocated_vram_gb()
 
-    inputs = tokenizer("What are symptoms of hypertension?", return_tensors="pt")
-    if torch.cuda.is_available():
-        inputs = {k: v.to("cuda") for k, v in inputs.items()}
+    inputs = tokenizer("What are symptoms of hypertension?", return_tensors="pt").to(model.device)
     with torch.no_grad():
-        model.generate(**inputs, max_new_tokens=32)
-
-    vram_gb = _peak_vram_gb()
-    n_params = sum(p.numel() for p in model.parameters())
-    param_gb = n_params * 2 / (1024**3)
+        model.generate(**inputs, max_new_tokens=32, pad_token_id=tokenizer.eos_token_id)
 
     results = {
-        "vram_gb": vram_gb,
-        "param_count_M": n_params / 1e6,
-        "param_size_fp16_gb": param_gb,
+        "vram_gb": peak_vram_gb(),
+        "vram_weights_gb": weights_gb,
+        # get_memory_footprint counts packed 4/8-bit weights correctly,
+        # unlike summing numel() * 2.
+        "model_footprint_gb": model.get_memory_footprint() / GB,
+        "n_gpus": len(_gpu_ids()),
         "quantization_bits": quant_bits,
     }
-    print(f"[memory] VRAM peak: {vram_gb:.2f} GB  |  Params: {n_params/1e6:.0f}M")
+    print(
+        f"[memory] VRAM peak: {results['vram_gb']:.2f} GB  |  "
+        f"weights: {weights_gb:.2f} GB  |  footprint: {results['model_footprint_gb']:.2f} GB"
+    )
     return results
