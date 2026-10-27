@@ -35,7 +35,9 @@ def load_model_and_tokenizer(model_path: str, quant_bits: Optional[int]):
         )
     elif quant_bits == 4:
         bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.float16,
         )
 
     if _is_peft_adapter(model_path):
@@ -50,7 +52,7 @@ def load_model_and_tokenizer(model_path: str, quant_bits: Optional[int]):
         model = model.merge_and_unload()
         if bnb_config:
             # Re-load merged model with quantization
-            import tempfile, os
+            import tempfile
             with tempfile.TemporaryDirectory() as tmp:
                 model.save_pretrained(tmp)
                 tokenizer.save_pretrained(tmp)

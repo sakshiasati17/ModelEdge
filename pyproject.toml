@@ -1,0 +1,11 @@
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = ["notebooks"]
+
+[tool.ruff.lint]
+# CI gates on real bugs only (pyflakes + syntax errors), not style.
+select = ["F", "E9"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

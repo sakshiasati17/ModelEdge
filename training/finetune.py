@@ -18,7 +18,7 @@ from pathlib import Path
 
 # Unsloth must be first import to patch trl/transformers before they load
 try:
-    import unsloth
+    import unsloth  # noqa: F401  (import for side effects: patches trl/transformers)
 except ImportError:
     pass
 

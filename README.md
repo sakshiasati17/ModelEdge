@@ -22,7 +22,7 @@ ModelEdge fine-tunes an instruction-tuned LLM (Llama-3.2-3B) on medical exam que
 | [`data/`](data/) | Download MedQA / PubMedQA, clean, format to Alpaca instruction style |
 | [`training/`](training/) | QLoRA fine-tuning with Unsloth + TRL `SFTTrainer` (single-GPU) |
 | [`quantization/`](quantization/) | Export merged model, loaded as INT8 / INT4 via BitsAndBytes |
-| [`benchmarking/`](benchmarking/) | Latency (p50/p95), VRAM, exact-match accuracy, hallucination rate |
+| [`benchmarking/`](benchmarking/) | Latency (p50/p95), VRAM, exact-match + option-letter accuracy, hallucination rate |
 | [`serving/`](serving/) | vLLM-backed FastAPI + Streamlit dashboard + load tester |
 | [`deployment/`](deployment/) | Kubernetes manifests — Deployments, Services, ConfigMap, HPA |
 
@@ -42,11 +42,11 @@ python -m data.prepare_dataset --dataset medqa --output data/processed/
 python -m training.finetune --config training/config.yaml
 
 # 3. Quantize
-python quantization/quantize.py --model outputs/finetuned --bits 8
-python quantization/quantize.py --model outputs/finetuned --bits 4
+python -m quantization.quantize --model outputs/finetuned --bits 8
+python -m quantization.quantize --model outputs/finetuned --bits 4
 
 # 4. Benchmark base / fine-tuned / quantized states
-python benchmarking/run_benchmark.py --models base fp16 int8 int4
+python -m benchmarking.run_benchmark --models base fp16 int8 int4
 
 # 5. Serve + dashboard
 uvicorn serving.api:app --host 0.0.0.0 --port 8000
@@ -72,7 +72,12 @@ Training: loss 1.94 → 1.14, eval loss 1.26 → 1.21 over 423 steps (~5.8 h). A
 
 > **\* VRAM figures are not yet reliable** — states were profiled in one shared process with an in-place merge/reload, so lower precisions report inflated peaks (INT4 > FP16). Per-process isolation is open work.
 >
-> **\*\* Accuracy is exact substring match**, which penalizes correct-but-verbose answers. Reviewing outputs, the fine-tuned drop is partly this scoring artifact and partly genuine error. An option-letter / judge-based scorer (`choices` are now persisted per record to enable it) is the planned fix.
+> **\*\* Accuracy is exact substring match**, which penalizes correct-but-verbose answers. Reviewing outputs, the fine-tuned drop is partly this scoring artifact and partly genuine error. These numbers predate the option-letter scorer and the hallucination redefinition below; a re-run is pending.
+
+**Metric definitions** (`benchmarking/scoring.py`):
+- `accuracy` — the answer text appears in the output (substring match).
+- `option_accuracy` — the option the model committed to (leading letter, "answer is X", or a single matching choice text) is correct. Requires `choices` in the test file; `n_with_choices` reports coverage.
+- `hallucination_rate` — the model committed to a wrong option without hedging language. A heuristic, not a factuality check.
 
 ---
 

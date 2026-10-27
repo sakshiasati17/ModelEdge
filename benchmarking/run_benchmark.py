@@ -2,8 +2,8 @@
 Full benchmark suite — runs latency, memory, and accuracy for each model state.
 
 Usage:
-    python benchmarking/run_benchmark.py --models fp16 int8 int4
-    python benchmarking/run_benchmark.py --models fp16 int8 int4 --output results/
+    python -m benchmarking.run_benchmark --models fp16 int8 int4
+    python -m benchmarking.run_benchmark --models fp16 int8 int4 --output results/
 """
 
 import argparse
@@ -68,10 +68,10 @@ def run_all(model_keys: list[str], test_file: str, output_dir: Path):
 
 
 def _print_summary_table(results: dict):
-    headers = ["model", "p50_ms", "p95_ms", "vram_gb", "accuracy", "hallucination_rate"]
-    row_fmt = "{:<10} {:>9} {:>9} {:>9} {:>10} {:>20}"
+    headers = ["model", "p50_ms", "p95_ms", "vram_gb", "accuracy", "option_acc", "hallucination_rate"]
+    row_fmt = "{:<10} {:>9} {:>9} {:>9} {:>10} {:>10} {:>20}"
     print("\n" + row_fmt.format(*headers))
-    print("-" * 72)
+    print("-" * 83)
     for key, r in results.items():
         print(
             row_fmt.format(
@@ -80,6 +80,7 @@ def _print_summary_table(results: dict):
                 f"{r.get('p95_ms', 0):.1f}",
                 f"{r.get('vram_gb', 0):.2f}",
                 f"{r.get('accuracy', 0):.3f}",
+                "n/a" if r.get("option_accuracy") is None else f"{r['option_accuracy']:.3f}",
                 f"{r.get('hallucination_rate', 0):.3f}",
             )
         )

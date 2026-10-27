@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
 
 RESULTS_DIR = Path("results")
@@ -74,7 +73,7 @@ tab_overview, tab_latency, tab_memory, tab_accuracy, tab_tradeoff = st.tabs(
 
 with tab_overview:
     st.subheader("Summary Table")
-    display_cols = ["model", "p50_ms", "p95_ms", "vram_gb", "accuracy", "hallucination_rate"]
+    display_cols = ["model", "p50_ms", "p95_ms", "vram_gb", "accuracy", "option_accuracy", "hallucination_rate"]
     available = [c for c in display_cols if c in df.columns]
     st.dataframe(df[available].set_index("model"), use_container_width=True)
 

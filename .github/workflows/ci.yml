@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [dev/modeledge-pipeline]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      # Tests cover pure-Python logic only; no torch/GPU stack is installed.
+      - name: Install check tools
+        run: pip install pytest ruff
+
+      - name: Lint (pyflakes + syntax)
+        run: ruff check .
+
+      - name: Byte-compile all modules
+        run: python -m compileall -q benchmarking data quantization serving training tests
+
+      - name: Validate notebook JSON
+        run: python -c "import json; json.load(open('notebooks/kaggle_training.ipynb'))"
+
+      - name: Unit tests
+        run: pytest -q
