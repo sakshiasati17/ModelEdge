@@ -31,6 +31,9 @@ spec:
             - "1"
             - "--max-model-len"
             - "2048"
+            # T4-class GPUs (compute 7.5) have no bfloat16 support
+            - "--dtype"
+            - "half"
           ports:
             - containerPort: 8001
           env:

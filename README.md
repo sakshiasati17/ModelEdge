@@ -41,14 +41,16 @@ python -m data.prepare_dataset --dataset medqa --output data/processed/
 # 2. Fine-tune (or run notebooks/kaggle_training.ipynb on Kaggle 2x T4)
 python -m training.finetune --config training/config.yaml
 
-# 3. Quantize
+# 3. Quantize, and merge the adapter for serving (vLLM can't load a bare adapter)
 python -m quantization.quantize --model outputs/finetuned --bits 8
 python -m quantization.quantize --model outputs/finetuned --bits 4
+python -m quantization.merge --model outputs/finetuned   # → outputs/finetuned_merged
 
 # 4. Benchmark base / fine-tuned / quantized states
 python -m benchmarking.run_benchmark --models base fp16 int8 int4
 
 # 5. Serve + dashboard
+python -m vllm.entrypoints.openai.api_server --model outputs/finetuned_merged --dtype half --port 8001
 uvicorn serving.api:app --host 0.0.0.0 --port 8000
 streamlit run serving/dashboard.py
 ```

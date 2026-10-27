@@ -15,9 +15,9 @@ jobs:
         with:
           python-version: "3.10"
 
-      # Tests cover pure-Python logic only; no torch/GPU stack is installed.
+      # Tests cover pure-Python logic and the API (vLLM mocked); no torch/GPU stack.
       - name: Install check tools
-        run: pip install pytest ruff
+        run: pip install pytest ruff fastapi httpx pydantic
 
       - name: Lint (pyflakes + syntax)
         run: ruff check .
