@@ -70,7 +70,7 @@ Fine-tuned on 9,733 MedQA-USMLE examples (3 epochs, single T4), evaluated on 200
 
 Training: loss 1.94 → 1.14, eval loss 1.26 → 1.21 over 423 steps (~5.8 h). Adapter: 24.3M of 3.24B params (0.75%), 93 MB.
 
-> **\* VRAM figures are not yet reliable** — states were profiled in one shared process with an in-place merge/reload, so lower precisions report inflated peaks (INT4 > FP16). Per-process isolation is open work.
+> **\* VRAM figures are not reliable** — each state was loaded three times in one shared process and never freed, and the fine-tuned states were merged into Unsloth's 4-bit base rather than FP16. Both are fixed in code (one process per state, FP16 merge); these numbers predate the fix and a re-run is pending.
 >
 > **\*\* Accuracy is exact substring match**, which penalizes correct-but-verbose answers. Reviewing outputs, the fine-tuned drop is partly this scoring artifact and partly genuine error. These numbers predate the option-letter scorer and the hallucination redefinition below; a re-run is pending.
 
@@ -88,7 +88,7 @@ Training: loss 1.94 → 1.14, eval loss 1.26 → 1.21 over 423 steps (~5.8 h). A
 | Data prep, QLoRA fine-tuning, quantization, benchmarking | ✅ Complete |
 | Kaggle training run + real benchmarks | ✅ Complete |
 | Serving layer + Kubernetes manifests | ✅ Implemented (not yet run under load) |
-| Option-based accuracy + isolated VRAM profiling | ⏳ Pending |
+| Option-based accuracy + isolated VRAM profiling | ✅ Implemented, ⏳ re-run pending |
 | Load testing + failure analysis | ⏳ Pending |
 
 ---

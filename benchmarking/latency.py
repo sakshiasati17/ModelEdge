@@ -1,7 +1,6 @@
 """Latency benchmarking: p50 / p95 / throughput measurements."""
 
 import time
-from typing import Optional
 
 import numpy as np
 import torch
@@ -20,23 +19,34 @@ SAMPLE_PROMPTS = [
 ]
 
 
-def _timed_generate(model, tokenizer, prompt: str, max_new_tokens: int = 128) -> float:
+def _timed_generate(
+    model, tokenizer, prompt: str, max_new_tokens: int = 128
+) -> tuple[float, int]:
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
     start = time.perf_counter()
     with torch.no_grad():
-        model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
-    return (time.perf_counter() - start) * 1000  # ms
+        out = model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            pad_token_id=tokenizer.eos_token_id,
+        )
+    n_new = out.shape[1] - inputs["input_ids"].shape[1]
+    return (time.perf_counter() - start) * 1000, n_new  # ms, tokens generated
 
 
 def run_latency_benchmark(
-    model_path: str,
-    quant_bits: Optional[int] = None,
+    model_path: str | None,
+    quant_bits: int | None = None,
     n_warmup: int = 3,
     n_runs: int = 20,
     max_new_tokens: int = 128,
+    model=None,
+    tokenizer=None,
 ) -> dict:
-    print(f"[latency] Loading model from {model_path} ...")
-    model, tokenizer = load_model_and_tokenizer(model_path, quant_bits)
+    if model is None:
+        print(f"[latency] Loading model from {model_path} ...")
+        model, tokenizer = load_model_and_tokenizer(model_path, quant_bits)
 
     print(f"[latency] Warming up ({n_warmup} runs) ...")
     for i in range(n_warmup):
@@ -44,10 +54,12 @@ def run_latency_benchmark(
         _timed_generate(model, tokenizer, prompt, max_new_tokens)
 
     latencies = []
+    tokens = []
     for i in range(n_runs):
         prompt = SAMPLE_PROMPTS[i % len(SAMPLE_PROMPTS)]
-        ms = _timed_generate(model, tokenizer, prompt, max_new_tokens)
+        ms, n_new = _timed_generate(model, tokenizer, prompt, max_new_tokens)
         latencies.append(ms)
+        tokens.append(n_new)
         if (i + 1) % 5 == 0:
             print(f"[latency] {i+1}/{n_runs} done")
 
@@ -60,6 +72,10 @@ def run_latency_benchmark(
         "max_ms": float(np.max(latencies)),
         "n_runs": n_runs,
         "max_new_tokens": max_new_tokens,
+        # Separates "slower per token" from "generates more tokens".
+        "mean_new_tokens": float(np.mean(tokens)),
+        "ms_per_token": float(np.sum(latencies) / max(np.sum(tokens), 1)),
+        "hit_token_limit_frac": float(np.mean(np.array(tokens) >= max_new_tokens)),
     }
     print(f"[latency] p50={results['p50_ms']:.1f}ms  p95={results['p95_ms']:.1f}ms")
     return results
