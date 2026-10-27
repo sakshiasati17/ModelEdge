@@ -1,7 +1,6 @@
 """Formatting helpers for instruction-tuning datasets."""
 
 import random
-from typing import Any
 
 
 ALPACA_TEMPLATE = (

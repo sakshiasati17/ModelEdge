@@ -2,8 +2,8 @@
 Quantization pipeline: FP16 → INT8 or INT4 (BitsAndBytes).
 
 Usage:
-    python quantization/quantize.py --model outputs/finetuned --bits 8
-    python quantization/quantize.py --model outputs/finetuned --bits 4
+    python -m quantization.quantize --model outputs/finetuned --bits 8
+    python -m quantization.quantize --model outputs/finetuned --bits 4
 """
 
 import argparse

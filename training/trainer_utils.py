@@ -8,7 +8,7 @@ from pathlib import Path
 # Without this, trl's SFTTrainer runs unpatched and fails on Unsloth's
 # legacy tokenizer placeholder eos_token '<EOS_TOKEN>'.
 try:
-    import unsloth
+    import unsloth  # noqa: F401  (import for side effects: patches trl/transformers)
     from unsloth import FastLanguageModel
     UNSLOTH_AVAILABLE = True
 except ImportError:
