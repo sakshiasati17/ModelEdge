@@ -3,8 +3,9 @@ kind: ConfigMap
 metadata:
   name: modeledge-config
 data:
-  # Path inside the pod where model weights are mounted
-  model_path: "/models/finetuned"
+  # Merged FP16 weights inside the pod (python -m quantization.merge output).
+  # vLLM cannot serve the bare LoRA adapter directory.
+  model_path: "/models/finetuned_merged"
 
   # FastAPI uses this to reach the vLLM service (ClusterIP DNS name)
   vllm_base_url: "http://modeledge-vllm:8001/v1"

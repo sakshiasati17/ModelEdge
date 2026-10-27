@@ -1,9 +1,11 @@
 """
 FastAPI wrapper around a vLLM-served model.
 
-Start the vLLM server first:
+Merge the adapter first (vLLM cannot serve a bare adapter directory), then
+start the vLLM server:
+    python -m quantization.merge --model outputs/finetuned
     python -m vllm.entrypoints.openai.api_server \
-        --model outputs/finetuned_int4 \
+        --model outputs/finetuned_merged --dtype half \
         --host 0.0.0.0 --port 8001
 
 Then start this API:
@@ -21,10 +23,18 @@ from pydantic import BaseModel, Field
 
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8001/v1")
 
-SYSTEM_INSTRUCTION = (
-    "You are a knowledgeable medical assistant. "
-    "Answer accurately and state uncertainty when present."
+# Must match the training format (data/dataset_utils.py ALPACA_TEMPLATE); the
+# model was fine-tuned on this raw prompt, not on chat messages. A test in
+# tests/test_api.py fails if the two drift apart.
+PROMPT_TEMPLATE = (
+    "Below is a medical question. Answer it accurately and concisely.\n\n"
+    "### Instruction:\n{question}\n\n"
+    "### Input:\n{choices}\n\n"
+    "### Response:\n"
 )
+
+# Stop if the model starts another "### ..." section instead of ending.
+STOP_SEQUENCES = ["\n###"]
 
 # Model name cached at startup — avoids a blocking sync call on every request
 _model_name: str = "unknown"
@@ -57,7 +67,7 @@ app = FastAPI(title="ModelEdge Inference API", version="1.0.0", lifespan=lifespa
 
 class InferenceRequest(BaseModel):
     question: str = Field(..., min_length=5)
-    choices: Optional[list[str]] = None
+    choices: Optional[list[str]] = Field(default=None, max_length=10)
     max_tokens: int = Field(default=256, ge=1, le=1024)
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)
 
@@ -96,18 +106,16 @@ async def infer(req: InferenceRequest):
 
     payload = {
         "model": model_name,
-        "messages": [
-            {"role": "system", "content": SYSTEM_INSTRUCTION},
-            {"role": "user", "content": prompt},
-        ],
+        "prompt": prompt,
         "max_tokens": req.max_tokens,
         "temperature": req.temperature,
+        "stop": STOP_SEQUENCES,
     }
 
     start = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(f"{VLLM_BASE_URL}/chat/completions", json=payload)
+            resp = await client.post(f"{VLLM_BASE_URL}/completions", json=payload)
             resp.raise_for_status()
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=502, detail=f"vLLM error: {e}")
@@ -119,15 +127,15 @@ async def infer(req: InferenceRequest):
     choices = data.get("choices", [])
     if not choices:
         raise HTTPException(status_code=502, detail="vLLM returned empty choices")
-    answer = choices[0]["message"]["content"].strip()
+    answer = choices[0]["text"].strip()
     model_id = data.get("model", _model_name)
 
     return InferenceResponse(answer=answer, latency_ms=elapsed_ms, model=model_id)
 
 
 def _build_prompt(question: str, choices: Optional[list[str]]) -> str:
+    opts = ""
     if choices:
         labels = "ABCDEFGHIJ"
         opts = "\n".join(f"{labels[i]}. {c}" for i, c in enumerate(choices))
-        return f"{question}\n\nOptions:\n{opts}"
-    return question
+    return PROMPT_TEMPLATE.format(question=question, choices=opts)
